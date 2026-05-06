@@ -1,0 +1,10 @@
+Reporte de pruebas y capturas
+Fecha: 2026-05-06T10:46:39.895010
+Base URL: http://127.0.0.1:8000
+
+[PASS] GET /activities: status=200, count=9
+[PASS] POST signup: status=200, email=qa-20260506104635@example.com
+[PASS] DELETE unregister: status=200, email=qa-20260506104635@example.com
+[PASS] Screenshot home: saved test/pruebas/01_home.png
+[PASS] Screenshot activities: saved test/pruebas/02_activities.png
+[PASS] Screenshot docs: saved test/pruebas/03_docs.png
