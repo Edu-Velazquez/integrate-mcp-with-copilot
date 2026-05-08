@@ -45,6 +45,8 @@ jobs:
             const branch = `pol/${issueNumber}-${shortTitle}`;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
+            let branchCreated = false;
+            let pr;
 
             // Get SHA of main
             const { data: ref } = await github.rest.git.getRef({
@@ -52,12 +54,19 @@ jobs:
             });
             const sha = ref.object.sha;
 
-            // Create the branch
-            await github.rest.git.createRef({
-              owner, repo,
-              ref: `refs/heads/${branch}`,
-              sha
-            });
+            // Create the branch if it does not already exist.
+            try {
+              await github.rest.git.createRef({
+                owner, repo,
+                ref: `refs/heads/${branch}`,
+                sha
+              });
+              branchCreated = true;
+            } catch (error) {
+              if (error.status !== 422) {
+                throw error;
+              }
+            }
 
             // Build PR body
             const labels = issue.labels.map(l => `\`${l.name}\``).join(', ') || '_none_';
@@ -88,7 +97,7 @@ jobs:
               `### 🔄 Pol workflow status`,
               ``,
               `- [x] 👀 Issue received and acknowledged`,
-              `- [x] 🌿 Branch \`${branch}\` created`,
+              `- [x] 🌿 Branch \`${branch}\` ready`,
               `- [x] 📬 Draft PR opened`,
               `- [ ] 🔍 Codebase inspection`,
               `- [ ] ⚙️ Implementation`,
@@ -101,33 +110,78 @@ jobs:
               `*Pol will push implementation commits to this branch via VS Code Copilot Agent.*`
             ].join('\n');
 
-            // Create draft PR
-            const { data: pr } = await github.rest.pulls.create({
-              owner, repo,
-              title: `WIP: ${issue.title} (fixes #${issueNumber})`,
-              head: branch,
-              base: 'main',
-              body: prBody,
-              draft: true
-            });
+            const issueCommentPrefix = `## 🤖 Pol is on it!`;
 
-            // Comment on the issue with the PR link
-            await github.rest.issues.createComment({
-              owner, repo,
-              issue_number: issueNumber,
-              body: [
-                `## 🤖 Pol is on it!`,
-                ``,
-                `👀 I'm reviewing this issue and starting implementation.`,
-                ``,
-                `A **draft WIP Pull Request** has been created: **[${pr.title}](${pr.html_url})**`,
-                ``,
-                `You can track all progress and activity inside that PR.`,
-                `Once implementation is complete, the PR will be marked ready for review and this issue will be closed automatically on merge.`,
-                ``,
-                `---`,
-                `*Branch: \`${branch}\`*`
-              ].join('\n')
-            });
+            try {
+              // Reuse an existing PR if present, otherwise create the draft PR.
+              const { data: existingPulls } = await github.rest.pulls.list({
+                owner,
+                repo,
+                state: 'open',
+                head: `${owner}:${branch}`,
+                base: 'main'
+              });
 
-            core.notice(`Draft PR created: ${pr.html_url}`);
+              if (existingPulls.length > 0) {
+                pr = existingPulls[0];
+              } else {
+                const { data: createdPr } = await github.rest.pulls.create({
+                  owner, repo,
+                  title: `WIP: ${issue.title} (fixes #${issueNumber})`,
+                  head: branch,
+                  base: 'main',
+                  body: prBody,
+                  draft: true
+                });
+                pr = createdPr;
+              }
+
+              await github.rest.issues.createComment({
+                owner, repo,
+                issue_number: issueNumber,
+                body: [
+                  issueCommentPrefix,
+                  ``,
+                  `👀 I'm reviewing this issue and starting implementation.`,
+                  ``,
+                  `A **draft WIP Pull Request** is ready: **[${pr.title}](${pr.html_url})**`,
+                  ``,
+                  `You can track all progress and activity inside that PR.`,
+                  `Once implementation is complete, the PR will be marked ready for review and this issue will be closed automatically on merge.`,
+                  ``,
+                  `---`,
+                  `*Branch: \`${branch}\`*`
+                ].join('\n')
+              });
+
+              core.notice(`Draft PR ready: ${pr.html_url}`);
+            } catch (error) {
+              const permissionBlocked = error.status === 403 && String(error.message || '').includes('not permitted to create or approve pull requests');
+
+              if (!permissionBlocked) {
+                throw error;
+              }
+
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: issueNumber,
+                body: [
+                  issueCommentPrefix,
+                  ``,
+                  `👀 I'm reviewing this issue and the working branch is ready: \`${branch}\`.`,
+                  ``,
+                  `The draft WIP Pull Request could not be created automatically because this repository has **GitHub Actions PR creation disabled**.`,
+                  ``,
+                  `To enable the full Pol flow, turn on this repository setting:`,
+                  `**Settings → Actions → General → Workflow permissions → Allow GitHub Actions to create and approve pull requests**`,
+                  ``,
+                  `After enabling it, remove and re-add the \`pol\` label, or manually open the PR from branch \`${branch}\`.`,
+                  ``,
+                  `---`,
+                  `*Branch created in this run: ${branchCreated ? 'yes' : 'already existed'}*`
+                ].join('\n')
+              });
+
+              core.setFailed('GitHub Actions is not permitted to create pull requests in this repository. Enable Actions PR creation in repository settings.');
+            }
