@@ -2,6 +2,7 @@
 
 ## Custom Agents
 - **Pol** — autonomous issue implementation agent. Invoke with `@Pol <issue-number>` to have it fully implement a GitHub issue end-to-end.
+- **Pol PR behavior** — when a `pol`-triggered draft PR already exists, Pol should reuse it, update the checklist as work progresses, add milestone comments when useful, and mark it ready for review when implementation is complete.
 
 ## Repository Layout
 - `src/app.py` — FastAPI application, all routes and data
