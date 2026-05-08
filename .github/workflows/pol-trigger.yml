@@ -20,6 +20,39 @@ jobs:
           ref: main
           fetch-depth: 0
 
+      - name: Prepare Pol work branch
+        id: prepare-branch
+        env:
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+        run: |
+          short_title=$(printf '%s' "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-40)
+          branch="pol/${ISSUE_NUMBER}-${short_title}"
+
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git fetch origin "$branch" || true
+
+          if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+            git checkout -B "$branch" "origin/$branch"
+          else
+            git checkout -b "$branch" origin/main
+          fi
+
+          ahead_count=$(git rev-list --count origin/main..HEAD)
+
+          if [ "$ahead_count" -eq 0 ]; then
+            git commit --allow-empty -m "chore: initialize Pol work branch for #$ISSUE_NUMBER"
+            git push origin "$branch"
+            echo "initialized=true" >> "$GITHUB_OUTPUT"
+          else
+            git push origin "$branch"
+            echo "initialized=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: React with 👀 on the issue
         uses: actions/github-script@v7
         with:
@@ -33,40 +66,17 @@ jobs:
 
       - name: Create branch and draft WIP Pull Request
         uses: actions/github-script@v7
+        env:
+          POL_BRANCH: ${{ steps.prepare-branch.outputs.branch }}
+          POL_BRANCH_INITIALIZED: ${{ steps.prepare-branch.outputs.initialized }}
         with:
           script: |
             const issue = context.payload.issue;
             const issueNumber = issue.number;
-            const shortTitle = issue.title
-              .toLowerCase()
-              .replace(/[^a-z0-9]+/g, '-')
-              .replace(/^-|-$/g, '')
-              .substring(0, 40);
-            const branch = `pol/${issueNumber}-${shortTitle}`;
+            const branch = process.env.POL_BRANCH;
             const owner = context.repo.owner;
             const repo = context.repo.repo;
-            let branchCreated = false;
             let pr;
-
-            // Get SHA of main
-            const { data: ref } = await github.rest.git.getRef({
-              owner, repo, ref: 'heads/main'
-            });
-            const sha = ref.object.sha;
-
-            // Create the branch if it does not already exist.
-            try {
-              await github.rest.git.createRef({
-                owner, repo,
-                ref: `refs/heads/${branch}`,
-                sha
-              });
-              branchCreated = true;
-            } catch (error) {
-              if (error.status !== 422) {
-                throw error;
-              }
-            }
 
             // Build PR body
             const labels = issue.labels.map(l => `\`${l.name}\``).join(', ') || '_none_';
@@ -179,7 +189,7 @@ jobs:
                   `After enabling it, remove and re-add the \`pol\` label, or manually open the PR from branch \`${branch}\`.`,
                   ``,
                   `---`,
-                  `*Branch created in this run: ${branchCreated ? 'yes' : 'already existed'}*`
+                  `*Empty initialization commit created in this run: ${process.env.POL_BRANCH_INITIALIZED === 'true' ? 'yes' : 'no'}*`
                 ].join('\n')
               });
 
