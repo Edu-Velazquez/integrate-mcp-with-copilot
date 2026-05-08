@@ -5,14 +5,33 @@ on:
     types: [labeled]
 
 jobs:
-  notify:
+  start-pol:
     if: github.event.label.name == 'pol'
     runs-on: ubuntu-latest
     permissions:
       issues: write
+      contents: write
+      pull-requests: write
 
     steps:
-      - name: Post Pol assignment comment
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: React with 👀 on the issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.reactions.createForIssue({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.issue.number,
+              content: 'eyes'
+            });
+
+      - name: Create branch and draft WIP Pull Request
         uses: actions/github-script@v7
         with:
           script: |
@@ -24,26 +43,91 @@ jobs:
               .replace(/^-|-$/g, '')
               .substring(0, 40);
             const branch = `pol/${issueNumber}-${shortTitle}`;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
 
+            // Get SHA of main
+            const { data: ref } = await github.rest.git.getRef({
+              owner, repo, ref: 'heads/main'
+            });
+            const sha = ref.object.sha;
+
+            // Create the branch
+            await github.rest.git.createRef({
+              owner, repo,
+              ref: `refs/heads/${branch}`,
+              sha
+            });
+
+            // Build PR body
+            const labels = issue.labels.map(l => `\`${l.name}\``).join(', ') || '_none_';
+            const milestone = issue.milestone ? issue.milestone.title : '_none_';
+            const prBody = [
+              `## 🤖 Pol is working on this`,
+              ``,
+              `Copilot agent **Pol** has been assigned to this issue and is actively working on the implementation.`,
+              ``,
+              `> Fixes #${issueNumber}`,
+              ``,
+              `---`,
+              ``,
+              `### 📋 Issue details`,
+              `| Field | Value |`,
+              `|-------|-------|`,
+              `| Issue | [#${issueNumber} — ${issue.title}](${issue.html_url}) |`,
+              `| Labels | ${labels} |`,
+              `| Milestone | ${milestone} |`,
+              `| Branch | \`${branch}\` |`,
+              ``,
+              `### 📝 Issue description`,
+              ``,
+              issue.body || '_No description provided._',
+              ``,
+              `---`,
+              ``,
+              `### 🔄 Pol workflow status`,
+              ``,
+              `- [x] 👀 Issue received and acknowledged`,
+              `- [x] 🌿 Branch \`${branch}\` created`,
+              `- [x] 📬 Draft PR opened`,
+              `- [ ] 🔍 Codebase inspection`,
+              `- [ ] ⚙️ Implementation`,
+              `- [ ] ✅ Validation / tests`,
+              `- [ ] 📦 Final commit pushed`,
+              `- [ ] 🚀 PR ready for review`,
+              ``,
+              `---`,
+              `*This PR was created automatically when label \`pol\` was added to issue #${issueNumber}.*`,
+              `*Pol will push implementation commits to this branch via VS Code Copilot Agent.*`
+            ].join('\n');
+
+            // Create draft PR
+            const { data: pr } = await github.rest.pulls.create({
+              owner, repo,
+              title: `WIP: ${issue.title} (fixes #${issueNumber})`,
+              head: branch,
+              base: 'main',
+              body: prBody,
+              draft: true
+            });
+
+            // Comment on the issue with the PR link
             await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
+              owner, repo,
               issue_number: issueNumber,
               body: [
-                '## 🤖 Pol received this issue',
-                '',
-                `**Issue:** #${issueNumber} — ${issue.title}`,
-                `**Target branch:** \`${branch}\``,
-                '',
-                '### To start implementation:',
-                '1. Open VS Code in this repository',
-                '2. Open GitHub Copilot Chat',
-                '3. Select **Pol** from the agent picker',
-                `4. Type: \`${issueNumber}\``,
-                '',
-                'Pol will read this issue, inspect the codebase, create the branch, implement the changes, run validations, push, and open a PR automatically.',
-                '',
-                '---',
-                '*Label `pol` detected — this comment was posted automatically by the Pol trigger workflow.*'
+                `## 🤖 Pol is on it!`,
+                ``,
+                `👀 I'm reviewing this issue and starting implementation.`,
+                ``,
+                `A **draft WIP Pull Request** has been created: **[${pr.title}](${pr.html_url})**`,
+                ``,
+                `You can track all progress and activity inside that PR.`,
+                `Once implementation is complete, the PR will be marked ready for review and this issue will be closed automatically on merge.`,
+                ``,
+                `---`,
+                `*Branch: \`${branch}\`*`
               ].join('\n')
             });
+
+            core.notice(`Draft PR created: ${pr.html_url}`);
