@@ -1,7 +1,5 @@
 document.addEventListener("DOMContentLoaded", () => {
   const activitiesList = document.getElementById("activities-list");
-  const activitySelect = document.getElementById("activity");
-  const signupForm = document.getElementById("signup-form");
   const messageDiv = document.getElementById("message");
 
   // Function to fetch activities from API
@@ -45,20 +43,39 @@ document.addEventListener("DOMContentLoaded", () => {
           <div class="participants-container">
             ${participantsHTML}
           </div>
+          <div class="register-section">
+            <button class="register-btn" data-activity="${name}">Register Student</button>
+            <div class="register-form">
+              <input type="email" class="email-input" placeholder="Student email" required />
+              <div class="form-actions">
+                <button class="submit-btn" data-activity="${name}">Submit</button>
+                <button class="cancel-btn">Cancel</button>
+              </div>
+            </div>
+          </div>
         `;
 
         activitiesList.appendChild(activityCard);
-
-        // Add option to select dropdown
-        const option = document.createElement("option");
-        option.value = name;
-        option.textContent = name;
-        activitySelect.appendChild(option);
       });
 
       // Add event listeners to delete buttons
       document.querySelectorAll(".delete-btn").forEach((button) => {
         button.addEventListener("click", handleUnregister);
+      });
+
+      // Add event listeners to register buttons
+      document.querySelectorAll(".register-btn").forEach((button) => {
+        button.addEventListener("click", showRegisterForm);
+      });
+
+      // Add event listeners to cancel buttons
+      document.querySelectorAll(".cancel-btn").forEach((button) => {
+        button.addEventListener("click", hideRegisterForm);
+      });
+
+      // Add event listeners to submit buttons
+      document.querySelectorAll(".submit-btn").forEach((button) => {
+        button.addEventListener("click", handleRegister);
       });
     } catch (error) {
       activitiesList.innerHTML =
@@ -67,55 +84,38 @@ document.addEventListener("DOMContentLoaded", () => {
     }
   }
 
-  // Handle unregister functionality
-  async function handleUnregister(event) {
+  // Show registration form
+  function showRegisterForm(event) {
     const button = event.target;
-    const activity = button.getAttribute("data-activity");
-    const email = button.getAttribute("data-email");
-
-    try {
-      const response = await fetch(
-        `/activities/${encodeURIComponent(
-          activity
-        )}/unregister?email=${encodeURIComponent(email)}`,
-        {
-          method: "DELETE",
-        }
-      );
-
-      const result = await response.json();
-
-      if (response.ok) {
-        messageDiv.textContent = result.message;
-        messageDiv.className = "success";
-
-        // Refresh activities list to show updated participants
-        fetchActivities();
-      } else {
-        messageDiv.textContent = result.detail || "An error occurred";
-        messageDiv.className = "error";
-      }
-
-      messageDiv.classList.remove("hidden");
-
-      // Hide message after 5 seconds
-      setTimeout(() => {
-        messageDiv.classList.add("hidden");
-      }, 5000);
-    } catch (error) {
-      messageDiv.textContent = "Failed to unregister. Please try again.";
-      messageDiv.className = "error";
-      messageDiv.classList.remove("hidden");
-      console.error("Error unregistering:", error);
-    }
+    const registerSection = button.closest(".register-section");
+    const form = registerSection.querySelector(".register-form");
+    form.classList.add("active");
+    button.style.display = "none";
   }
 
-  // Handle form submission
-  signupForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
+  // Hide registration form
+  function hideRegisterForm(event) {
+    const button = event.target;
+    const registerSection = button.closest(".register-section");
+    const form = registerSection.querySelector(".register-form");
+    const registerBtn = registerSection.querySelector(".register-btn");
+    form.classList.remove("active");
+    registerBtn.style.display = "block";
+    form.querySelector(".email-input").value = "";
+  }
 
-    const email = document.getElementById("email").value;
-    const activity = document.getElementById("activity").value;
+  // Handle registration
+  async function handleRegister(event) {
+    const button = event.target;
+    const activity = button.getAttribute("data-activity");
+    const registerSection = button.closest(".register-section");
+    const emailInput = registerSection.querySelector(".email-input");
+    const email = emailInput.value.trim();
+
+    if (!email) {
+      showMessage("Please enter a valid email address.", "error");
+      return;
+    }
 
     try {
       const response = await fetch(
@@ -130,30 +130,64 @@ document.addEventListener("DOMContentLoaded", () => {
       const result = await response.json();
 
       if (response.ok) {
-        messageDiv.textContent = result.message;
-        messageDiv.className = "success";
-        signupForm.reset();
-
+        showMessage(result.message, "success");
         // Refresh activities list to show updated participants
         fetchActivities();
       } else {
-        messageDiv.textContent = result.detail || "An error occurred";
-        messageDiv.className = "error";
+        showMessage(result.detail || "An error occurred", "error");
       }
-
-      messageDiv.classList.remove("hidden");
-
-      // Hide message after 5 seconds
-      setTimeout(() => {
-        messageDiv.classList.add("hidden");
-      }, 5000);
     } catch (error) {
-      messageDiv.textContent = "Failed to sign up. Please try again.";
-      messageDiv.className = "error";
-      messageDiv.classList.remove("hidden");
-      console.error("Error signing up:", error);
+      showMessage("Failed to register. Please try again.", "error");
+      console.error("Error registering:", error);
     }
-  });
+  }
+
+  // Handle unregister (delete participant)
+  async function handleUnregister(event) {
+    const button = event.target;
+    const activity = button.getAttribute("data-activity");
+    const email = button.getAttribute("data-email");
+
+    if (!confirm(`Remove ${email} from ${activity}?`)) {
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/activities/${encodeURIComponent(
+          activity
+        )}/unregister?email=${encodeURIComponent(email)}`,
+        {
+          method: "DELETE",
+        }
+      );
+
+      const result = await response.json();
+
+      if (response.ok) {
+        showMessage(result.message, "success");
+        // Refresh activities list to show updated participants
+        fetchActivities();
+      } else {
+        showMessage(result.detail || "An error occurred", "error");
+      }
+    } catch (error) {
+      showMessage("Failed to unregister. Please try again.", "error");
+      console.error("Error unregistering:", error);
+    }
+  }
+
+  // Show message to user
+  function showMessage(text, type) {
+    messageDiv.textContent = text;
+    messageDiv.className = type;
+    messageDiv.classList.remove("hidden");
+
+    // Hide message after 5 seconds
+    setTimeout(() => {
+      messageDiv.classList.add("hidden");
+    }, 5000);
+  }
 
   // Initialize app
   fetchActivities();
