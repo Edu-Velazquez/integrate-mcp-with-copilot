@@ -1,0 +1,49 @@
+name: Pol Agent Trigger
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  notify:
+    if: github.event.label.name == 'pol'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    steps:
+      - name: Post Pol assignment comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issue = context.payload.issue;
+            const issueNumber = issue.number;
+            const shortTitle = issue.title
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-|-$/g, '')
+              .substring(0, 40);
+            const branch = `pol/${issueNumber}-${shortTitle}`;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                '## 🤖 Pol received this issue',
+                '',
+                `**Issue:** #${issueNumber} — ${issue.title}`,
+                `**Target branch:** \`${branch}\``,
+                '',
+                '### To start implementation:',
+                '1. Open VS Code in this repository',
+                '2. Open GitHub Copilot Chat',
+                '3. Select **Pol** from the agent picker',
+                `4. Type: \`${issueNumber}\``,
+                '',
+                'Pol will read this issue, inspect the codebase, create the branch, implement the changes, run validations, push, and open a PR automatically.',
+                '',
+                '---',
+                '*Label `pol` detected — this comment was posted automatically by the Pol trigger workflow.*'
+              ].join('\n')
+            });
